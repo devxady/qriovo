@@ -462,6 +462,8 @@ img, svg { display: block; }
 .generator-form-bottom .button { min-height: 43px; padding-inline: 15px; font-size: 12px; }
 .generator-form-bottom > span { display: inline-flex; align-items: center; gap: 6px; color: #88948b; font-size: 10px; }
 .generator-form-bottom > span svg { color: var(--green); }
+.generator-save-action { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 10px; }
+.generator-quota-count { color: var(--secondary); font: 600 10px var(--font-mono); }
 .preview-column { position: sticky; top: 97px; display: grid; gap: 12px; }
 .preview-panel { padding: 22px; }
 .preview-panel-head { align-items: center; }
@@ -1323,12 +1325,10 @@ img, svg { display: block; }
 .auth-config-notice { margin: 12px 0 16px; align-items: flex-start; }
 .auth-config-notice code { padding: 1px 4px; border-radius: 4px; background: rgba(255,255,255,.65); font: 11px var(--font-mono); }
 .auth-reset-back { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; color: var(--green); background: transparent; font: 650 11px var(--font-body); cursor: pointer; }
-.save-qr-trigger { margin-top: 10px; }
 .save-qr-modal { position: relative; width: min(480px, 100%); padding: 29px; }
 .save-qr-modal .modal-icon { margin-bottom: 12px; }
 .save-qr-modal h2 { margin: 0 30px 9px 0; color: var(--forest); font: 600 25px/1.14 var(--font-heading); letter-spacing: -.04em; }
 .save-qr-modal p { margin: 0 0 18px; color: var(--secondary); font-size: var(--text-body); line-height: 1.6; }
-.save-qr-modal .field-wrap { margin-bottom: 12px; }
 .save-auth-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 17px; }
 .save-auth-actions .button { justify-content: center; }
 .dashboard-loading { display: flex; min-height: 190px; align-items: center; justify-content: center; gap: 12px; color: var(--secondary); font-size: 13px; }
@@ -1345,6 +1345,10 @@ img, svg { display: block; }
   .save-qr-modal { padding: 24px 18px; }
   .save-auth-actions { display: grid; grid-template-columns: 1fr; }
   .save-auth-actions .button { width: 100%; }
+  .generator-form-bottom { align-items: stretch; flex-direction: column; }
+  .generator-save-action { width: 100%; }
+  .generator-save-action .button { flex: 1; justify-content: center; }
+  .generator-form-bottom > span { max-width: none; }
 }
 
 /* Saved QR storage usage */

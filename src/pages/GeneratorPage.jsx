@@ -19,7 +19,6 @@ export function GeneratorPage() {
   const [type, setType] = useState('Website')
   const [valuesByType, setValuesByType] = useState(initialValues)
   const [styles, setStyles] = useState(initialStyles)
-  const [submitted, setSubmitted] = useState(false)
   const [errors, setErrors] = useState({})
   const [logo, setLogo] = useState('')
   const [logoName, setLogoName] = useState('')
@@ -29,12 +28,13 @@ export function GeneratorPage() {
   const [busy, setBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [savePrompt, setSavePrompt] = useState(false)
-  const [saveDialog, setSaveDialog] = useState(false)
   const [saveComplete, setSaveComplete] = useState(false)
   const [qrName, setQrName] = useState('')
   const [saveError, setSaveError] = useState('')
   const [quotaInfo, setQuotaInfo] = useState({ loading: false, ready: false, count: null, error: false })
   const logoInput = useRef(null)
+  const saveLock = useRef(false)
+  const savedDraftFingerprints = useRef(new Set())
   const values = valuesByType[type] || {}
   const fields = FIELDS_BY_TYPE[type]
   const payloadErrors = validateQrValues(type, values)
@@ -49,18 +49,18 @@ export function GeneratorPage() {
     if (!location.state?.resumeQrSave) return
     try {
       const saved = JSON.parse(sessionStorage.getItem('qriovo-pending-qr-draft-v1') || 'null')
-      if (saved && QR_TYPES.includes(saved.type)) {
+      if (saved && QR_TYPES.includes(saved.type) && Date.now() - saved.savedAt < 15 * 60 * 1000) {
         setType(saved.type)
         setValuesByType(saved.valuesByType || {})
         setStyles({ ...initialStyles, ...saved.styles, logoSize: Number(saved.styles?.logoSize) || initialStyles.logoSize })
         setFileName(saved.name || 'qriovo-qr-code')
-        setQrName((saved.name || 'qriovo-qr-code').replace(/-/g, ' '))
+        if (['png', 'svg'].includes(saved.extension)) setExtension(saved.extension)
         setLogo('')
         setLogoName('')
-        setSaveDialog(true)
-        setNotice('Your QR draft was restored after sign-in. Uploads are temporary and were not included.')
+        setErrors(validateQrValues(saved.type, saved.valuesByType?.[saved.type] || {}))
+        setNotice('Your QR details and design were restored after sign-in. Review them, then choose Save to Dashboard when you are ready. Temporary logo uploads were not included.')
         sessionStorage.removeItem('qriovo-pending-qr-draft-v1')
-      }
+      } else sessionStorage.removeItem('qriovo-pending-qr-draft-v1')
     } catch { setNotice('Your QR draft could not be restored. Please check the details again.') }
     navigate('/generator', { replace: true, state: null })
   }, [location.state, navigate])
@@ -78,26 +78,14 @@ export function GeneratorPage() {
   const updateValue = (key, value) => {
     const nextValues = { ...values, [key]: value }
     setValuesByType((current) => ({ ...current, [type]: nextValues }))
-    if (submitted) setErrors(validateQrValues(type, nextValues))
+    setErrors((current) => Object.keys(current).length ? validateQrValues(type, nextValues) : current)
     setNotice('')
   }
   const updateStyle = (key, value) => setStyles((current) => ({ ...current, [key]: value }))
-  const submit = (event) => {
-    event.preventDefault()
-    const nextErrors = validateQrValues(type, values)
-    setErrors(nextErrors)
-    setSubmitted(true)
-    if (Object.keys(nextErrors).length) {
-      setNotice('Check the highlighted fields to create your QR code.')
-      return
-    }
-    setNotice('Your scannable QR code is ready. It has not been saved to an account.')
-  }
   const changeType = (nextType) => {
     setType(nextType)
     setValuesByType((current) => ({ ...current, [nextType]: current[nextType] || (nextType === 'Wi-Fi' ? { security: 'WPA', hidden: false } : {}) }))
     setErrors({})
-    setSubmitted(false)
     setNotice('')
     setFileName(`qriovo-${nextType.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`)
   }
@@ -127,7 +115,7 @@ export function GeneratorPage() {
     reader.readAsDataURL(file)
   }
   const download = async () => {
-    if (!payload) { setSubmitted(true); setErrors(validateQrValues(type, values)); setNotice('Add valid details before downloading.'); return }
+    if (!payload) { setErrors(validateQrValues(type, values)); setNotice('Add valid details before downloading.'); return }
     if (previewWarning) { setNotice(previewWarning); return }
     setBusy(true); setNotice('')
     try {
@@ -145,14 +133,19 @@ export function GeneratorPage() {
   }
   const saveDraftForAuth = () => {
     try {
-      sessionStorage.setItem('qriovo-pending-qr-draft-v1', JSON.stringify({ type, valuesByType, styles, name: fileName }))
-    } catch { setNotice('This browser could not keep a temporary draft. Copy your content before continuing.') }
+      sessionStorage.setItem('qriovo-pending-qr-draft-v1', JSON.stringify({ savedAt: Date.now(), type, valuesByType, styles, name: fileName, extension }))
+      return true
+    } catch { return false }
   }
-  const openSave = () => {
-    if (!payload || previewWarning) {
-      setSubmitted(true)
-      setErrors(validateQrValues(type, values))
+  const openSave = async () => {
+    const nextErrors = validateQrValues(type, values)
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length || !payload || previewWarning) {
       setNotice(previewWarning || 'Add valid details before saving.')
+      return
+    }
+    if (!currentUser) {
+      setSavePrompt(true)
       return
     }
     if (currentUser && !quotaInfo.ready) {
@@ -163,42 +156,64 @@ export function GeneratorPage() {
       setNotice('You have reached the limit of 25 saved QR codes. Remove one from your dashboard to create a slot; local creation and downloads remain available.')
       return
     }
-    setQrName(fileName.replace(/-/g, ' ').trim() || 'My QR code')
-    setSaveError('')
-    if (currentUser) setSaveDialog(true)
-    else setSavePrompt(true)
-  }
-  const continueToAuth = (path) => {
-    saveDraftForAuth()
-    navigate(path, { state: { from: { pathname: '/generator', state: { resumeQrSave: true } } } })
-  }
-  const saveToAccount = async (event) => {
-    event.preventDefault()
-    if (!currentUser || !payload || previewWarning) return
+    if (saveLock.current) return
+    const fingerprint = JSON.stringify({ type, payload, design: {
+      foreground: styles.foreground,
+      background: styles.background,
+      pattern: styles.pattern,
+      cornerSquare: styles.cornerSquare,
+      cornerDot: styles.cornerDot,
+      size: styles.size,
+      margin: styles.margin,
+      errorCorrection: styles.errorCorrection,
+      gradient: styles.gradient,
+    } })
+    if (savedDraftFingerprints.current.has(fingerprint)) {
+      setNotice('This QR has already been saved during this session. Change its content or design before saving another code.')
+      return
+    }
+    saveLock.current = true
     setSaveBusy(true)
     setSaveError('')
+    setNotice('')
+    const name = fileName.replace(/[-_]+/g, ' ').trim().slice(0, 80) || 'My QR code'
+    setQrName(name)
     try {
-      await createQrCode(currentUser.uid, { name: qrName, type, values, design: styles })
+      await createQrCode(currentUser.uid, { name, type, values, design: styles })
+      savedDraftFingerprints.current.add(fingerprint)
       setQuotaInfo((quota) => quota.ready ? { ...quota, count: quota.count + 1, remaining: Math.max(0, quota.remaining - 1) } : quota)
       try { sessionStorage.removeItem('qriovo-pending-qr-draft-v1') } catch { /* Storage is optional. */ }
-      setSaveDialog(false)
       setSaveComplete(true)
     } catch (error) {
       setSaveError(firebaseErrorMessage(error, 'We could not save this QR code. Please try again.'))
-    } finally { setSaveBusy(false) }
+      if (error?.code === 'resource-exhausted') {
+        getUserQrQuota(currentUser.uid).then((quota) => setQuotaInfo({ loading: false, ...quota, error: false })).catch(() => {})
+      }
+    } finally {
+      saveLock.current = false
+      setSaveBusy(false)
+    }
+  }
+  const continueToAuth = (path) => {
+    if (!saveDraftForAuth()) {
+      setSavePrompt(false)
+      setNotice('This browser could not keep a temporary copy of your QR details. Keep this tab open and try again, or copy your content before continuing.')
+      return
+    }
+    navigate(path, { state: { from: { pathname: '/generator', state: { resumeQrSave: true } } } })
   }
 
   return <div className="workspace-page"><div className="container workspace-container">
     <div className="workspace-heading"><div><Link className="back-link" to="/"><ArrowLeft size={15} /> Back to home</Link><Eyebrow>Make something worth scanning</Eyebrow><h1>QR code <em>studio.</em></h1><p>Create a scannable code in your browser, then style and download it. No account required.</p></div><span className="workspace-step"><span>01</span> / 03 <span className="step-separator" /> CREATE</span></div>
-    <div className="generator-layout"><form className="generator-panel functional-generator" onSubmit={submit} noValidate>
-      <div className="generator-panel-head"><div><span className="panel-step">STEP 01</span><h2>What are we sharing?</h2><p>Choose a format and enter the details to encode.</p></div><span className="panel-head-icon"><QrCode size={20} /></span></div>
+    <div className="generator-layout"><section className="generator-panel functional-generator" aria-labelledby="generator-fields-title">
+      <div className="generator-panel-head"><div><span className="panel-step">STEP 01</span><h2 id="generator-fields-title">What are we sharing?</h2><p>Choose a format and enter the details to encode.</p></div><span className="panel-head-icon"><QrCode size={20} /></span></div>
       <div className="qr-type-tabs functional-type-tabs" role="tablist" aria-label="QR code type">{QR_TYPES.map((item) => <button key={item} type="button" role="tab" aria-selected={type === item} className={type === item ? 'active' : ''} onClick={() => changeType(item)}>{item}</button>)}</div>
       <div className="generator-fields functional-fields">{fields.map((field) => field.conditional && !field.conditional(values) ? null : <label className="field-wrap" key={field.key}>
         <span>{field.label}{field.required && <b> *</b>}</span>
-        {field.select ? <span className="select-wrap"><select value={control(values, field.key) || (field.key === 'security' ? 'WPA' : field.select[0])} onChange={(event) => updateValue(field.key, event.target.value)} aria-label={field.label}>{field.select.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={16} /></span>
+        {field.select ? <span className="select-wrap"><select value={control(values, field.key) || (field.key === 'security' ? 'WPA' : field.select[0])} onChange={(event) => updateValue(field.key, event.target.value)} onBlur={() => setErrors(validateQrValues(type, values))} aria-label={field.label}>{field.select.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown size={16} /></span>
           : field.checkbox ? <span className="checkbox-row"><input type="checkbox" checked={Boolean(values[field.key])} onChange={(event) => updateValue(field.key, event.target.checked)} /> Use a hidden network</span>
-            : field.textarea ? <textarea value={control(values, field.key)} onChange={(event) => updateValue(field.key, event.target.value)} placeholder={field.placeholder} rows={3} aria-invalid={Boolean(errors[field.key])} />
-              : <input type={field.type || 'text'} value={control(values, field.key)} onChange={(event) => updateValue(field.key, event.target.value)} placeholder={field.placeholder} aria-invalid={Boolean(errors[field.key])} autoComplete="off" />}
+            : field.textarea ? <textarea value={control(values, field.key)} onChange={(event) => updateValue(field.key, event.target.value)} onBlur={() => setErrors(validateQrValues(type, values))} placeholder={field.placeholder} rows={3} aria-invalid={Boolean(errors[field.key])} />
+              : <input type={field.type || 'text'} value={control(values, field.key)} onChange={(event) => updateValue(field.key, event.target.value)} onBlur={() => setErrors(validateQrValues(type, values))} placeholder={field.placeholder} aria-invalid={Boolean(errors[field.key])} autoComplete="off" />}
         {errors[field.key] && <span className="field-error" role="alert">{errors[field.key]}</span>}
       </label>)}</div>
       <div className="customize-controls"><div className="accordion-toggle functional-style-heading"><span className="accordion-title"><span className="accordion-icon"><Sparkles size={17} /></span><span><strong>Make it yours</strong><small>Live design controls</small></span></span><button type="button" className="reset-design-button" onClick={resetStyles}><RotateCcw size={14} /> Reset</button></div>
@@ -214,22 +229,22 @@ export function GeneratorPage() {
           <div className="logo-control"><input ref={logoInput} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={addLogo} aria-label="Choose center logo" /><button className="upload-logo" type="button" onClick={() => logoInput.current?.click()}><ImagePlus size={18} /><span><strong>{logo ? 'Change center logo' : 'Add a center logo'}</strong><small>PNG, JPG, WebP · up to 1.5 MB</small></span><Upload size={15} /></button>{logo && <div className="logo-file-row"><span>{logoName} · {Math.round(styles.logoSize * 100)}%</span><button type="button" onClick={() => { setLogo(''); setLogoName('') }} aria-label="Remove logo"><X size={15} /></button></div>}{logo && <label className="field-wrap logo-size-control"><span>Logo size</span><input type="range" min="0.16" max="0.28" step="0.01" value={styles.logoSize} onChange={(event) => updateStyle('logoSize', Number(event.target.value))} /><small className="control-helper">Smaller logos leave more of the QR pattern visible.</small></label>}</div>
         </div>
       </div>
-      <div className="generator-form-bottom functional-form-bottom"><Button type="submit">Create QR code <ArrowRight size={16} /></Button><span><LockKeyhole size={14} /> Generated locally in your browser</span></div>
-      <Button type="button" variant="secondary" className="save-qr-trigger" disabled={!payload || Boolean(previewWarning) || Boolean(currentUser && quotaInfo.ready && quotaInfo.count >= MAX_SAVED_QR_CODES) || Boolean(currentUser && quotaInfo.loading)} onClick={openSave}><Check size={16} /> {currentUser && quotaInfo.ready ? `Save to dashboard · ${quotaInfo.count}/${MAX_SAVED_QR_CODES}` : currentUser ? 'Save to dashboard' : 'Save QR to your account'}</Button>
+      <div className="generator-form-bottom functional-form-bottom"><div className="generator-save-action"><Button type="button" disabled={!payload || Boolean(previewWarning) || saveBusy || Boolean(currentUser && quotaInfo.loading) || Boolean(currentUser && quotaInfo.ready && quotaInfo.count >= MAX_SAVED_QR_CODES)} onClick={openSave}><Check size={16} /> {saveBusy ? 'Saving…' : 'Save to Dashboard'}</Button>{currentUser && quotaInfo.ready && <span className="generator-quota-count">{quotaInfo.count} / {MAX_SAVED_QR_CODES} saved</span>}</div><span><LockKeyhole size={14} /> Generated locally in your browser</span></div>
+      {logo && currentUser && <div className="notice notice-info quota-generator-note"><CircleHelp size={16} /> The uploaded center logo is temporary and will not be stored with your saved QR. Its content and design settings will be saved.</div>}
       {currentUser && quotaInfo.ready && quotaInfo.count >= 20 && quotaInfo.count < MAX_SAVED_QR_CODES && <div className="notice notice-info quota-generator-note" role="status"><CircleHelp size={16} /> You&apos;re approaching your free QR storage limit: {quotaInfo.count} of {MAX_SAVED_QR_CODES} saved.</div>}
       {currentUser && quotaInfo.ready && quotaInfo.count >= MAX_SAVED_QR_CODES && <div className="notice notice-info quota-generator-note" role="status"><CircleHelp size={16} /> You&apos;ve reached the 25-code storage limit. Existing QR codes remain editable and downloadable.</div>}
       {currentUser && !quotaInfo.loading && !quotaInfo.ready && <div className="notice notice-info quota-generator-note" role="status"><CircleHelp size={16} /> Account storage is not ready. Saved-code features need the one-time counter migration; local QR creation and downloads remain available.</div>}
-      {notice && <div className={`notice ${errors && Object.keys(errors).length ? 'notice-info' : 'notice-info'}`} role="status"><CircleHelp size={17} />{notice}</div>}
-    </form>
+      {saveError && <div className="notice notice-error" role="alert"><CircleHelp size={17} />{saveError}</div>}
+      {notice && <div className="notice notice-info" role="status"><CircleHelp size={17} />{notice}</div>}
+    </section>
     <aside className="preview-column"><div className="preview-panel functional-preview-panel"><div className="preview-panel-head"><div><span className="panel-step">LIVE DESIGN</span><h2>{payload ? 'Ready to scan.' : 'Your QR, your way.'}</h2></div><span className="qr-type-chip">{type}</span></div><div className="preview-canvas"><span className="canvas-label">Q R I O V O&nbsp; / &nbsp;{payload ? 'LIVE QR' : 'PREVIEW'}</span><div className="preview-glow" /><div className="real-qr-frame"><QRCodePreview data={previewWarning ? '' : payload} options={codeOptions} /></div><div className="preview-caption"><strong>{payload ? 'Scannable QR code' : 'Add your details to begin'}</strong><span>{payload ? `${styles.size} × ${styles.size} px · ${byteLength} bytes` : 'The live code appears once details are valid.'}</span></div></div>
       {previewWarning && <div className="qr-warning" role="alert"><CircleHelp size={16} /> {previewWarning}</div>}
       {contrastWarning && <div className="qr-warning" role="alert"><CircleHelp size={16} /> {contrastWarning}</div>}
       {logo && payload && <div className="qr-warning"><CircleHelp size={16} /> Scan-test your logo design before printing. A logo can affect readability.</div>}
-      <div className="download-controls"><label className="field-wrap"><span>File name</span><input value={fileName} onChange={(event) => setFileName(event.target.value)} onBlur={() => setFileName(sanitizeFilename(fileName))} /></label><div className="download-row"><label className="field-wrap"><span>Format</span><select value={extension} onChange={(event) => setExtension(event.target.value)}><option value="png">PNG</option><option value="svg">SVG</option></select></label><Button type="button" variant="dark" disabled={!payload || Boolean(previewWarning) || busy} onClick={download}><Download size={16} /> {busy ? 'Preparing…' : `Download ${extension.toUpperCase()}`}</Button></div><button type="button" className="copy-payload-button" disabled={!payload} onClick={copyPayload}><Copy size={15} /> Copy encoded content</button></div>
+      <div className="download-controls"><label className="field-wrap"><span>QR name &amp; download filename</span><input value={fileName} onChange={(event) => setFileName(event.target.value)} onBlur={() => setFileName(sanitizeFilename(fileName))} /></label><div className="download-row"><label className="field-wrap"><span>Format</span><select value={extension} onChange={(event) => setExtension(event.target.value)}><option value="png">PNG</option><option value="svg">SVG</option></select></label><Button type="button" variant="dark" disabled={!payload || Boolean(previewWarning) || busy} onClick={download}><Download size={16} /> {busy ? 'Preparing…' : `Download ${extension.toUpperCase()}`}</Button></div><button type="button" className="copy-payload-button" disabled={!payload} onClick={copyPayload}><Copy size={15} /> Copy encoded content</button></div>
       <details className="encoded-content"><summary>View encoded content</summary><code>{payload || 'Your encoded content will appear here after the details are valid.'}</code></details>
       <div className="preview-hint"><CircleHelp size={16} /><p><strong>{currentUser ? 'Account connected' : 'Guest mode'}</strong><br />{currentUser ? 'Save this QR to your account for later editing and downloads.' : 'Your QR is generated on this device. Guest codes are not saved; sign in or register to save it.'}</p></div></div><div className="preview-side-note"><span className="side-note-symbol">✳</span><span><strong>Ready when you are</strong><small>QR content is generated in your browser. Nothing is uploaded until you choose Save.</small></span></div></aside></div>
-    {savePrompt && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSavePrompt(false) }}><section className="confirm-modal save-qr-modal" role="dialog" aria-modal="true" aria-labelledby="save-required-title"><button className="modal-close" type="button" onClick={() => setSavePrompt(false)} aria-label="Close save options"><X size={19} /></button><span className="modal-icon"><LockKeyhole size={20} /></span><h2 id="save-required-title">Save this QR for later</h2><p>Your QR is ready, but saving codes requires a Qriovo account. Sign in or create a free account; your current editor details will be kept temporarily in this browser.</p><div className="save-auth-actions"><Button type="button" onClick={() => continueToAuth('/login')}><LogIn size={16} /> Log in</Button><Button type="button" variant="secondary" onClick={() => continueToAuth('/register')}><UserPlus size={16} /> Create account</Button></div></section></div>}
-    {saveDialog && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saveBusy) setSaveDialog(false) }}><form className="confirm-modal save-qr-modal" role="dialog" aria-modal="true" aria-labelledby="save-qr-title" onSubmit={saveToAccount}><button className="modal-close" type="button" onClick={() => setSaveDialog(false)} aria-label="Close save QR dialog"><X size={19} /></button><span className="modal-icon"><QrCode size={20} /></span><h2 id="save-qr-title">Save to your account</h2><p>Your {type} QR will be available in your dashboard for editing, duplication and downloads.</p><label className="field-wrap"><span>QR code name</span><input autoFocus maxLength={80} value={qrName} onChange={(event) => setQrName(event.target.value)} aria-invalid={!qrName.trim()} /></label>{logo && <div className="notice notice-info"><CircleHelp size={17} />Your uploaded logo is temporary and will not be saved. The saved QR will use its colors and pattern; you can upload the logo again after opening it.</div>}{saveError && <div className="notice notice-error" role="alert"><CircleHelp size={17} />{saveError}</div>}<div className="save-auth-actions"><Button type="button" variant="secondary" disabled={saveBusy} onClick={() => setSaveDialog(false)}>Keep editing</Button><Button type="submit" disabled={saveBusy || !qrName.trim()}>{saveBusy ? 'Saving…' : 'Save QR'} <Check size={16} /></Button></div></form></div>}
+    {savePrompt && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSavePrompt(false) }}><section className="confirm-modal save-qr-modal" role="dialog" aria-modal="true" aria-labelledby="save-required-title"><button className="modal-close" type="button" onClick={() => setSavePrompt(false)} aria-label="Close save options"><X size={19} /></button><span className="modal-icon"><LockKeyhole size={20} /></span><h2 id="save-required-title">Save this QR for later</h2><p>A free Qriovo account is required to save QR codes to your Dashboard. Your current details and design will be kept in this browser for up to 15 minutes while you sign in or register. Afterward, review your QR and choose Save to Dashboard; it will not be saved automatically.</p><div className="save-auth-actions"><Button type="button" onClick={() => continueToAuth('/login')}><LogIn size={16} /> Log in</Button><Button type="button" variant="secondary" onClick={() => continueToAuth('/register')}><UserPlus size={16} /> Create Free Account</Button></div></section></div>}
     {saveComplete && <div className="modal-backdrop" role="presentation"><section className="confirm-modal save-qr-modal" role="dialog" aria-modal="true" aria-labelledby="saved-qr-title"><span className="modal-icon"><Check size={20} /></span><h2 id="saved-qr-title">QR saved</h2><p><strong>{qrName}</strong> is now in your account. Its image can be regenerated from the saved content and design.</p><div className="save-auth-actions"><Button type="button" variant="secondary" onClick={() => setSaveComplete(false)}>Keep creating</Button><Button to="/dashboard" onClick={() => setSaveComplete(false)}>Open dashboard <ArrowRight size={16} /></Button></div></section></div>}
     <div className="generator-footnote"><span>CLIENT-SIDE QR GENERATION</span><span>No account or server required to create and download</span></div>
   </div></div>

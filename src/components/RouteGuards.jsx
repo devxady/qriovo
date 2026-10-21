@@ -18,8 +18,13 @@ export function ProtectedRoute({ children }) {
 
 export function PublicOnlyRoute({ children }) {
   const { currentUser, loading, profileSetupPending } = useAuth()
+  const location = useLocation()
   if (loading) return <AuthLoading />
-  if (currentUser && !profileSetupPending) return <Navigate to="/dashboard" replace />
+  if (currentUser && !profileSetupPending) {
+    const from = location.state?.from
+    const destination = from?.pathname?.startsWith('/') ? from : { pathname: '/dashboard' }
+    return <Navigate to={destination.pathname} state={destination.state} replace />
+  }
   return children
 }
 

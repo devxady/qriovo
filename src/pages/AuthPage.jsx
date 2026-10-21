@@ -99,7 +99,7 @@ export function AuthPage({ mode }) {
         {formError && <div className="notice notice-error" role="alert"><CircleHelp size={17} />{formError}</div>}
         {notice && <div className="notice notice-info" role="status"><CircleHelp size={17} />{notice}</div>}
       </form>}
-      {!resetMode && !profileSetupPending && <><div className="auth-divider"><span /> <small>OR</small> <span /></div><p className="auth-switch">{isRegister ? 'Already have an account?' : 'New to Qriovo?'} <Link to={isRegister ? '/login' : '/register'}>{isRegister ? 'Log in' : 'Create a free account'} <ArrowUpRight size={14} /></Link></p></>}
+      {!resetMode && !profileSetupPending && <><div className="auth-divider"><span /> <small>OR</small> <span /></div><p className="auth-switch">{isRegister ? 'Already have an account?' : 'New to Qriovo?'} <Link to={isRegister ? '/login' : '/register'} state={location.state}>{isRegister ? 'Log in' : 'Create a free account'} <ArrowUpRight size={14} /></Link></p></>}
       <div className="auth-privacy"><LockKeyhole size={14} /> {configured ? 'Your password is handled securely by Firebase Authentication.' : 'Account forms are disabled until Firebase is configured.'}</div></div><span className="auth-copyright">© {new Date().getFullYear()} Qriovo. Made with a little care.</span></section></div>
 }
 

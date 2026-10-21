@@ -1,6 +1,6 @@
 import { getApp, getApps, initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { connectAuthEmulator, getAuth } from 'firebase/auth'
+import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore'
 
 const env = import.meta.env
 
@@ -29,3 +29,10 @@ const app = firebaseConfigured
 
 export const auth = app ? getAuth(app) : null
 export const db = app ? getFirestore(app) : null
+
+// Optional local-only routing so authenticated UI flows can be exercised
+// against Firebase Emulator Suite without touching the configured project.
+if (import.meta.env.DEV && env.VITE_USE_FIREBASE_EMULATORS === 'true' && auth && db) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  connectFirestoreEmulator(db, '127.0.0.1', 8080)
+}
