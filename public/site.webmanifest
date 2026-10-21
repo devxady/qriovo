@@ -1,0 +1,22 @@
+{
+  "name": "Qriovo — QR Code Generator",
+  "short_name": "Qriovo",
+  "description": "Create and customize QR codes for free. Save and manage codes with an account.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F6FBEF",
+  "theme_color": "#C7FA5B",
+  "icons": [
+    {
+      "src": "./icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

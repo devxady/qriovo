@@ -1,0 +1,8 @@
+FIREBASE_PROJECT_ID=demo-qriovo
+FIREBASE_WEB_API_KEY=fake-api-key
+ALLOWED_ORIGINS=http://localhost:5173
+OWNER_1_UID=synthetic-owner-one
+OWNER_2_UID=synthetic-owner-two
+OWNER_2_EMAIL=owner-two@example.test
+GOOGLE_SERVICE_ACCOUNT_EMAIL=emulator-only@example.test
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=emulator-only-not-a-real-key

@@ -1,0 +1,8 @@
+name = "qriovo-super-admin-api"
+main = "index.js"
+compatibility_date = "2026-10-21"
+workers_dev = false
+
+[vars]
+FIREBASE_PROJECT_ID = "qrivo-db-dxa"
+ALLOWED_ORIGINS = "https://devxady.github.io"

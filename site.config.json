@@ -1,0 +1,12 @@
+{
+  "publicUrl": "https://devxady.github.io/qriovo",
+  "basePath": "/qriovo/",
+  "publicRoutes": [
+    "/",
+    "/generator",
+    "/about",
+    "/contact",
+    "/privacy-policy",
+    "/terms-and-conditions"
+  ]
+}

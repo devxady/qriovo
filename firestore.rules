@@ -1,0 +1,292 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isApprovedSuperAdminUid() {
+      // Replace these fail-closed markers with the two owner UIDs before publishing.
+      return request.auth.uid == '__OWNER_1_FIREBASE_UID__'
+        || request.auth.uid == '__OWNER_2_FIREBASE_UID__';
+    }
+
+    function isSuperAdmin() {
+      return signedIn()
+        && request.auth.token.superAdmin == true
+        && isApprovedSuperAdminUid();
+    }
+
+    function userStatsPath(uid) {
+      return /databases/$(database)/documents/userStats/$(uid);
+    }
+
+    function userProfilePath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function qrPath(qrId) {
+      return /databases/$(database)/documents/qrCodes/$(qrId);
+    }
+
+    function eventPath(eventId) {
+      return /databases/$(database)/documents/activityEvents/$(eventId);
+    }
+
+    function qrWritesEnabled() {
+      let settingsPath = /databases/$(database)/documents/systemSettings/qrQuota;
+      return exists(settingsPath)
+        && get(settingsPath).data.qrWritesPaused == false;
+    }
+
+    function validProfileCreate(uid) {
+      return owns(uid)
+        && request.resource.data.keys().hasOnly(['name', 'email', 'createdAt'])
+        && request.resource.data.keys().hasAll(['name', 'email', 'createdAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function validStatsCreate(uid) {
+      return owns(uid)
+        && request.resource.data.keys().hasOnly([
+          'qrCount', 'loginCount', 'lastLoginAt', 'lastActivityAt',
+          'lastQrCreatedAt', 'lastActivityType', 'lastActivityQrId', 'lastActivityEventId',
+          'activityTrackingStartedAt', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'qrCount', 'loginCount', 'lastLoginAt', 'lastActivityAt',
+          'lastQrCreatedAt', 'lastActivityType', 'lastActivityQrId', 'lastActivityEventId',
+          'activityTrackingStartedAt', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.qrCount == 0
+        && request.resource.data.loginCount == 0
+        && request.resource.data.lastLoginAt == null
+        && request.resource.data.lastActivityAt == null
+        && request.resource.data.lastQrCreatedAt == null
+        && request.resource.data.lastActivityType == null
+        && request.resource.data.lastActivityQrId == null
+        && request.resource.data.lastActivityEventId == null
+        && request.resource.data.activityTrackingStartedAt == request.time
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && !exists(userProfilePath(uid))
+        && existsAfter(userProfilePath(uid))
+        && getAfter(userProfilePath(uid)).data.email == request.auth.token.email;
+    }
+
+    function eventAfterMatches(uid, eventId, eventType) {
+      return eventId is string
+        && existsAfter(eventPath(eventId))
+        && getAfter(eventPath(eventId)).data.userId == uid
+        && getAfter(eventPath(eventId)).data.type == eventType
+        && getAfter(eventPath(eventId)).data.createdAt == request.time;
+    }
+
+    function qrCreateStatsUpdate(uid) {
+      let qrId = request.resource.data.lastActivityQrId;
+      let eventId = request.resource.data.lastActivityEventId;
+      let eventType = request.resource.data.lastActivityType;
+      return request.resource.data.qrCount == resource.data.qrCount + 1
+        && resource.data.qrCount < 25
+        && request.resource.data.loginCount == resource.data.loginCount
+        && request.resource.data.lastLoginAt == resource.data.lastLoginAt
+        && eventType in ['qr_create', 'qr_duplicate']
+        && request.resource.data.lastQrCreatedAt == request.time
+        && request.resource.data.lastActivityAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && qrId is string
+        && !exists(qrPath(qrId))
+        && existsAfter(qrPath(qrId))
+        && getAfter(qrPath(qrId)).data.userId == uid
+        && eventAfterMatches(uid, eventId, eventType)
+        && getAfter(eventPath(eventId)).data.qrId == qrId;
+    }
+
+    function qrEditStatsUpdate(uid) {
+      let qrId = request.resource.data.lastActivityQrId;
+      let eventId = request.resource.data.lastActivityEventId;
+      return request.resource.data.qrCount == resource.data.qrCount
+        && request.resource.data.loginCount == resource.data.loginCount
+        && request.resource.data.lastLoginAt == resource.data.lastLoginAt
+        && request.resource.data.lastQrCreatedAt == resource.data.lastQrCreatedAt
+        && request.resource.data.lastActivityType == 'qr_edit'
+        && request.resource.data.lastActivityAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && qrId is string
+        && exists(qrPath(qrId))
+        && get(qrPath(qrId)).data.userId == uid
+        && existsAfter(qrPath(qrId))
+        && getAfter(qrPath(qrId)).data.userId == uid
+        && eventAfterMatches(uid, eventId, 'qr_edit')
+        && getAfter(eventPath(eventId)).data.qrId == qrId;
+    }
+
+    function qrDeleteStatsUpdate(uid) {
+      let qrId = request.resource.data.lastActivityQrId;
+      let eventId = request.resource.data.lastActivityEventId;
+      return resource.data.qrCount > 0
+        && request.resource.data.qrCount == resource.data.qrCount - 1
+        && request.resource.data.loginCount == resource.data.loginCount
+        && request.resource.data.lastLoginAt == resource.data.lastLoginAt
+        && request.resource.data.lastQrCreatedAt == resource.data.lastQrCreatedAt
+        && request.resource.data.lastActivityType == 'qr_delete'
+        && request.resource.data.lastActivityAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && qrId is string
+        && exists(qrPath(qrId))
+        && get(qrPath(qrId)).data.userId == uid
+        && !existsAfter(qrPath(qrId))
+        && eventAfterMatches(uid, eventId, 'qr_delete')
+        && getAfter(eventPath(eventId)).data.qrId == qrId;
+    }
+
+    function loginStatsUpdate(uid) {
+      let eventId = request.resource.data.lastActivityEventId;
+      return request.resource.data.loginCount == resource.data.loginCount + 1
+        && request.resource.data.qrCount == resource.data.qrCount
+        && request.resource.data.lastQrCreatedAt == resource.data.lastQrCreatedAt
+        && request.resource.data.lastActivityQrId == resource.data.lastActivityQrId
+        && request.resource.data.lastLoginAt == request.time
+        && request.resource.data.lastActivityAt == request.time
+        && request.resource.data.lastActivityType == 'login'
+        && request.resource.data.updatedAt == request.time
+        && eventAfterMatches(uid, eventId, 'login')
+        && getAfter(eventPath(eventId)).data.authMethod in ['email', 'google', 'other'];
+    }
+
+    function validQrFields(data) {
+      return data.keys().hasOnly([
+          'userId', 'name', 'type', 'content', 'design', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'userId', 'name', 'type', 'content', 'design', 'createdAt', 'updatedAt'
+        ])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 150
+        && data.type in [
+          'Website', 'Text', 'Wi-Fi', 'WhatsApp', 'Email',
+          'SMS', 'Phone', 'Contact', 'UPI Payment', 'Location'
+        ]
+        && data.content is string
+        && data.content.size() <= 10000
+        && data.design is map
+        && data.design.keys().hasOnly([
+          'foreground', 'background', 'pattern', 'cornerSquare', 'cornerDot',
+          'size', 'margin', 'errorCorrection', 'gradient'
+        ])
+        && data.design.keys().hasAll([
+          'foreground', 'background', 'pattern', 'cornerSquare', 'cornerDot',
+          'size', 'margin', 'errorCorrection', 'gradient'
+        ])
+        && data.design.foreground is string
+        && data.design.foreground.matches('^#[0-9a-fA-F]{6}$')
+        && data.design.background is string
+        && data.design.background.matches('^#[0-9a-fA-F]{6}$')
+        && data.design.pattern in ['square', 'rounded', 'dots', 'classy', 'classy-rounded', 'extra-rounded']
+        && data.design.cornerSquare in ['square', 'dot', 'rounded', 'classy', 'extra-rounded']
+        && data.design.cornerDot in ['square', 'dot', 'rounded', 'classy', 'extra-rounded']
+        && data.design.size in [256, 512, 1024]
+        && data.design.margin is number
+        && data.design.margin >= 0
+        && data.design.margin <= 32
+        && data.design.errorCorrection in ['L', 'M', 'Q', 'H']
+        && data.design.gradient is bool;
+    }
+
+    match /users/{userId} {
+      allow read: if owns(userId) || isSuperAdmin();
+      allow create: if validProfileCreate(userId);
+      allow update: if (owns(userId) || isSuperAdmin())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 100;
+      // Keep the profile as the account's immutable bootstrap anchor. A
+      // client must not delete and recreate it to reset its quota counter.
+      allow delete: if false;
+    }
+
+    match /userStats/{userId} {
+      allow read: if owns(userId) || isSuperAdmin();
+      allow create: if validStatsCreate(userId);
+      allow update: if owns(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'qrCount', 'loginCount', 'lastLoginAt', 'lastActivityAt', 'lastQrCreatedAt',
+          'lastActivityType', 'lastActivityQrId', 'lastActivityEventId', 'updatedAt'
+        ])
+        && (
+          loginStatsUpdate(userId)
+          || (qrWritesEnabled() && qrCreateStatsUpdate(userId))
+          || (qrWritesEnabled() && qrEditStatsUpdate(userId))
+          || (qrWritesEnabled() && qrDeleteStatsUpdate(userId))
+        );
+      allow delete: if false;
+    }
+
+    match /qrCodes/{qrId} {
+      // Super Admins intentionally have no access to QR documents or encoded content.
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if owns(request.resource.data.userId)
+        && qrWritesEnabled()
+        && validQrFields(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && exists(userStatsPath(request.auth.uid))
+        && get(userStatsPath(request.auth.uid)).data.qrCount < 25
+        && getAfter(userStatsPath(request.auth.uid)).data.qrCount == get(userStatsPath(request.auth.uid)).data.qrCount + 1
+        && getAfter(userStatsPath(request.auth.uid)).data.lastActivityQrId == qrId
+        && getAfter(userStatsPath(request.auth.uid)).data.lastActivityType in ['qr_create', 'qr_duplicate'];
+      allow update: if owns(resource.data.userId)
+        && qrWritesEnabled()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && validQrFields(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'type', 'content', 'design', 'updatedAt'])
+        && exists(userStatsPath(request.auth.uid))
+        && getAfter(userStatsPath(request.auth.uid)).data.lastActivityType == 'qr_edit'
+        && getAfter(userStatsPath(request.auth.uid)).data.lastActivityQrId == qrId;
+      allow delete: if owns(resource.data.userId)
+        && qrWritesEnabled()
+        && exists(userStatsPath(request.auth.uid))
+        && get(userStatsPath(request.auth.uid)).data.qrCount > 0
+        && getAfter(userStatsPath(request.auth.uid)).data.qrCount == get(userStatsPath(request.auth.uid)).data.qrCount - 1
+        && getAfter(userStatsPath(request.auth.uid)).data.lastActivityType == 'qr_delete'
+        && getAfter(userStatsPath(request.auth.uid)).data.lastActivityQrId == qrId;
+    }
+
+    match /activityEvents/{eventId} {
+      allow read: if (owns(resource.data.userId) || isSuperAdmin());
+      allow create: if owns(request.resource.data.userId)
+        && request.resource.data.createdAt == request.time
+        && (
+          (request.resource.data.type == 'login'
+            && qrWritesEnabled()
+            && request.resource.data.keys().hasOnly(['userId', 'type', 'authMethod', 'createdAt'])
+            && request.resource.data.authMethod in ['email', 'google', 'other']
+            && getAfter(userStatsPath(request.auth.uid)).data.lastActivityEventId == eventId
+            && getAfter(userStatsPath(request.auth.uid)).data.loginCount == get(userStatsPath(request.auth.uid)).data.loginCount + 1)
+          || (request.resource.data.type in ['qr_create', 'qr_duplicate', 'qr_edit', 'qr_delete']
+            && qrWritesEnabled()
+            && request.resource.data.keys().hasOnly(['userId', 'type', 'qrId', 'createdAt'])
+            && request.resource.data.qrId is string
+            && getAfter(userStatsPath(request.auth.uid)).data.lastActivityEventId == eventId
+            && getAfter(userStatsPath(request.auth.uid)).data.lastActivityQrId == request.resource.data.qrId
+            && getAfter(userStatsPath(request.auth.uid)).data.lastActivityType == request.resource.data.type)
+        );
+      allow update, delete: if false;
+    }
+
+    // systemSettings is writable only by a trusted Admin SDK migration script.
+    // No client-facing match is intentionally provided.
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "qriovo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "seo:generate": "node scripts/generate-seo-files.mjs",
+    "prebuild": "npm run seo:generate",
+    "build": "vite build",
+    "preview": "vite preview",
+    "admin:super-claim": "node scripts/manage-super-admin-claim.mjs",
+    "admin:migrate-stats": "node scripts/migrate-user-stats.mjs",
+    "test:migration-emulator": "node scripts/run-emulator-suite.mjs test-migration-emulator.mjs",
+    "test:super-admin-emulator": "node scripts/run-emulator-suite.mjs test-super-admin-emulator.mjs",
+    "test:super-admin-client": "node scripts/test-super-admin-client.mjs",
+    "test:super-admin-worker": "node scripts/test-super-admin-worker.mjs"
+  },
+  "dependencies": {
+    "firebase": "^12.19.0",
+    "lucide-react": "^0.468.0",
+    "qr-code-styling": "^1.9.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "firebase-admin": "^14.5.0",
+    "firebase-tools": "^15.34.0",
+    "vite": "^6.0.5"
+  }
+}
