@@ -1473,7 +1473,10 @@ img, svg { display: block; }
 .admin-profile-edit input { width: 100%; min-height: 40px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px; outline-color: var(--green); color: var(--forest); font: 12px var(--font-body); }
 .admin-profile-edit > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-success-panel { padding: 11px 14px; border: 1px solid #d6e9c9; border-radius: 10px; color: #3f6334; background: #f5faef; font-size: 11px; }
-.admin-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+.admin-detail-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 11px; }
+.admin-detail-grid > .admin-metric-card { grid-column: span 2; }
+.admin-detail-grid > .admin-metric-card:nth-child(4) { grid-column: 2 / span 2; }
+.admin-detail-grid > .admin-metric-card:nth-child(5) { grid-column: 4 / span 2; }
 .admin-detail-grid .admin-metric-card { min-height: 112px; }
 .admin-detail-grid .admin-metric-card > strong { font-size: 18px; }
 .admin-panel { padding: 18px; border: 1px solid #e4ebdf; border-radius: 13px; background: white; }
@@ -1618,7 +1621,11 @@ img, svg { display: block; }
   .admin-metric-top i { width: 26px; height: 26px; }
   .admin-metric-card > strong { font-size: 19px; }
   .admin-metric-card > small { font-size: 10px; }
-  .admin-notice-grid, .admin-detail-grid, .admin-analytics-summary, .admin-method-grid { grid-template-columns: 1fr; }
+  .admin-notice-grid, .admin-analytics-summary, .admin-method-grid { grid-template-columns: 1fr; }
+  .admin-detail-grid { grid-template-columns: 1fr; }
+  .admin-detail-grid > .admin-metric-card,
+  .admin-detail-grid > .admin-metric-card:nth-child(4),
+  .admin-detail-grid > .admin-metric-card:nth-child(5) { grid-column: 1; }
   .admin-info-panel { padding: 12px; }
   .admin-data-footer, .admin-table-summary, .admin-pagination { align-items: flex-start; flex-direction: column; }
   .admin-table-controls { align-items: stretch; padding: 9px; }

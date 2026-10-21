@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Activity, ArrowDownRight, ArrowLeft, ArrowUpRight, CalendarClock, CircleHelp, Clock3, Database, QrCode, RefreshCw, Search, ShieldCheck, Users } from 'lucide-react'
-import { useAuth } from '../context/AuthContext.jsx'
 import { Button, Eyebrow } from '../components/UI.jsx'
 import { formatAdminDate, getAdminActivity, getAdminAnalytics, getAdminOverview, getAdminUserDetail, inactivityStatus, listAdminUsers, updateAdminUserName } from '../lib/adminService.js'
 import { firebaseErrorMessage } from '../lib/firebaseErrors.js'
-import { getManagedAuthSummaries, superAdminApiConfigured } from '../lib/superAdminService.js'
 
 const prettyNumber = (value) => Number.isFinite(Number(value)) ? new Intl.NumberFormat().format(Number(value)) : '—'
 const valueOrUnavailable = (value) => value === null || value === undefined ? 'Unavailable' : prettyNumber(value)
@@ -100,10 +98,8 @@ export function AdminUsersPage() {
 }
 
 export function AdminUserDetailPage() {
-  const { currentUser } = useAuth()
   const { uid } = useParams()
   const [detail, setDetail] = useState(null)
-  const [authSummary, setAuthSummary] = useState(null)
   const [profileName, setProfileName] = useState('')
   const [editingName, setEditingName] = useState(false)
   const [savingName, setSavingName] = useState(false)
@@ -120,16 +116,11 @@ export function AdminUserDetailPage() {
       setEditingName(false)
       setProfileNotice('')
       setProfileError('')
-      setAuthSummary(null)
-      if (superAdminApiConfigured) {
-        try { setAuthSummary((await getManagedAuthSummaries(currentUser, [uid]))[0] || null) }
-        catch { setAuthSummary(null) }
-      }
     }
     catch (cause) { setError(firebaseErrorMessage(cause, 'Account details could not be loaded. Confirm administrator read access and the activity index.')) }
     finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [uid, currentUser])
+  useEffect(() => { load() }, [uid])
   const saveName = async (event) => {
     event.preventDefault()
     setProfileError(''); setProfileNotice('')
@@ -153,7 +144,7 @@ export function AdminUserDetailPage() {
       <div className="admin-user-heading"><div className="admin-user-avatar">{String(detail.profile.name || detail.profile.email || 'U').slice(0, 1).toUpperCase()}</div><div><Eyebrow>ACCOUNT DETAILS · LIMITED PROFILE EDITS</Eyebrow><h2>{detail.profile.name || 'Unnamed account'}</h2><p>{detail.profile.email || 'Email unavailable'} <span>·</span> UID <code>{uid}</code></p></div><div className="admin-user-heading-actions"><StatusBadge state={state} />{!editingName && <Button type="button" variant="secondary" onClick={() => { setProfileName(detail.profile.name || ''); setEditingName(true); setProfileError(''); setProfileNotice('') }}>Edit display name</Button>}</div></div>
       {editingName && <form className="admin-profile-edit" onSubmit={saveName}><label htmlFor="admin-profile-name">Display name</label><input id="admin-profile-name" value={profileName} onChange={(event) => setProfileName(event.target.value)} maxLength={100} autoFocus required /><div><Button type="submit" disabled={savingName}>{savingName ? 'Saving…' : 'Save name'}</Button><Button type="button" variant="secondary" disabled={savingName} onClick={() => { setProfileName(detail.profile.name || ''); setEditingName(false); setProfileError('') }}>Cancel</Button></div></form>}
       {profileError && <div className="admin-error-panel" role="alert">{profileError}</div>}{profileNotice && <div className="admin-success-panel" role="status">{profileNotice}</div>}
-      <div className="admin-detail-grid"><MetricCard label="Account role" value={authSummary ? (authSummary.role === 'superAdmin' ? 'Super Admin' : 'Normal User') : 'Unavailable'} helper="Resolved by the trusted Auth service" icon={<ShieldCheck size={18} />} /><MetricCard label="Auth status" value={authSummary ? (authSummary.disabled ? 'Disabled' : 'Enabled') : 'Unavailable'} helper={authSummary ? (authSummary.emailVerified ? 'Email verified' : 'Email not verified') : 'Trusted backend metadata is unavailable'} icon={<Users size={18} />} /><MetricCard label="Account created" value={formatAdminDate(authSummary?.createdAt || detail.profile.createdAt)} helper="Firebase Auth creation time where available" icon={<CalendarClock size={18} />} /><MetricCard label="Last Auth sign-in" value={formatAdminDate(authSummary?.lastSignInAt, { timeStyle: 'short' })} helper="Firebase Authentication metadata" icon={<Activity size={18} />} /><MetricCard label="Last successful login*" value={formatAdminDate(detail.stats?.lastLoginAt, { timeStyle: 'short' })} helper={`${valueOrUnavailable(detail.stats?.loginCount)} client-reported events · tracking since ${formatAdminDate(detail.stats?.activityTrackingStartedAt)}`} icon={<Activity size={18} />} /><MetricCard label="Saved QR codes" value={detail.stats ? `${prettyNumber(detail.stats.qrCount)} / 25` : 'Not reconciled'} helper={detail.stats ? `${Math.max(0, 25 - Number(detail.stats.qrCount || 0))} slots remaining` : 'Requires one-time reconciliation'} icon={<QrCode size={18} />} /><MetricCard label="Last QR created" value={formatAdminDate(detail.stats?.lastQrCreatedAt, { timeStyle: 'short' })} helper="Timestamp from the account summary" icon={<QrCode size={18} />} /><MetricCard label="Last meaningful activity" value={formatAdminDate(detail.stats?.lastActivityAt, { timeStyle: 'short' })} helper={detail.stats?.lastActivityType ? `Most recent type: ${detail.stats.lastActivityType}` : 'No known activity timestamp'} icon={<Clock3 size={18} />} /></div>
+      <div className="admin-detail-grid"><MetricCard label="Account created" value={formatAdminDate(detail.profile.createdAt)} helper="Firestore profile creation time" icon={<CalendarClock size={18} />} /><MetricCard label="Last successful login*" value={formatAdminDate(detail.stats?.lastLoginAt, { timeStyle: 'short' })} helper={`${valueOrUnavailable(detail.stats?.loginCount)} client-reported events · tracking since ${formatAdminDate(detail.stats?.activityTrackingStartedAt)}`} icon={<Activity size={18} />} /><MetricCard label="Saved QR codes" value={detail.stats ? `${prettyNumber(detail.stats.qrCount)} / 25` : 'Not reconciled'} helper={detail.stats ? `${Math.max(0, 25 - Number(detail.stats.qrCount || 0))} slots remaining` : 'Requires one-time reconciliation'} icon={<QrCode size={18} />} /><MetricCard label="Last QR created" value={formatAdminDate(detail.stats?.lastQrCreatedAt, { timeStyle: 'short' })} helper="Timestamp from the account summary" icon={<QrCode size={18} />} /><MetricCard label="Last meaningful activity" value={formatAdminDate(detail.stats?.lastActivityAt, { timeStyle: 'short' })} helper={detail.stats?.lastActivityType ? `Most recent type: ${detail.stats.lastActivityType}` : 'No known activity timestamp'} icon={<Clock3 size={18} />} /></div>
       <article className="admin-panel admin-activity-panel"><div className="admin-panel-heading"><div><span className="admin-kicker">RECENT EVENTS</span><h3>Account activity</h3></div><span className="admin-subtle-pill">Latest {detail.activity.length} events</span></div><p className="admin-panel-description">Best-effort client events. QR content and encoded values are not shown.</p>{detail.activity.length ? <ul className="admin-event-list">{detail.activity.map((event) => <li key={event.id}><span className={`admin-event-icon ${event.type === 'login' ? 'event-login' : ''}`}><Activity size={15} /></span><div><strong>{eventLabel(event)}</strong><small>{event.type === 'login' ? `Authentication method: ${event.authMethod || 'Unavailable'}` : 'QR metadata only'}</small></div><time>{formatAdminDate(event.createdAt, { timeStyle: 'short' })}</time></li>)}</ul> : <div className="admin-empty-inline">No activity events have been recorded since tracking started.</div>}<div className="admin-recent-qr"><h4>Recent QR creation timestamps</h4>{detail.qrActivity.length ? <ul>{detail.qrActivity.map((event) => <li key={event.id}><span>{event.type === 'qr_duplicate' ? 'Duplicated QR saved' : 'QR saved'}</span><time>{formatAdminDate(event.createdAt, { timeStyle: 'short' })}</time></li>)}</ul> : <p>No QR save events have been recorded since tracking started.</p>}</div></article>
       <p className="admin-footnote">* Login and activity events are written by the browser after successful actions. They are not independently verified. No historic login records are inferred.</p>
     </>}

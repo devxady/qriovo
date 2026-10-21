@@ -51,25 +51,6 @@ async function requestSuperAdminApi(user, path, baseUrl = apiBaseUrl) {
   return payload
 }
 
-function publicAuthSummary(row = {}) {
-  return {
-    uid: typeof row.uid === 'string' ? row.uid : '',
-    role: row.role === 'superAdmin' ? 'superAdmin' : 'normal',
-    disabled: row.disabled === true,
-    emailVerified: row.emailVerified === true,
-    createdAt: typeof row.createdAt === 'string' ? row.createdAt : '',
-    lastSignInAt: typeof row.lastSignInAt === 'string' ? row.lastSignInAt : '',
-  }
-}
-
-export async function getManagedAuthSummaries(user, uids = [], baseUrl = apiBaseUrl) {
-  const uniqueUids = [...new Set(uids.filter((uid) => typeof uid === 'string' && uid.length > 0))].slice(0, 25)
-  if (!uniqueUids.length) return []
-  const params = new URLSearchParams({ uids: uniqueUids.join(',') })
-  const payload = await requestSuperAdminApi(user, `/users/auth?${params}`, baseUrl)
-  return Array.isArray(payload.users) ? payload.users.map(publicAuthSummary).filter((row) => row.uid) : []
-}
-
 export async function getSuperAdminOwners(user, baseUrl = apiBaseUrl) {
   const payload = await requestSuperAdminApi(user, '/owners', baseUrl)
   return {
